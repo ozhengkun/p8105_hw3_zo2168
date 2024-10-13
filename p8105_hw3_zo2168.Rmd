@@ -1,0 +1,57 @@
+---
+title: "p8105_hw3_zo2168"
+author: "Zhengkun Ou"
+date: "2024-10-12"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(p8105.datasets)
+data("ny_noaa")
+library(tidyverse)
+```
+
+```{r}
+skimr::skim(ny_noaa)
+```
+```{r}
+ny_noaa = janitor::clean_names(ny_noaa)
+ny_noaa_1 <- 
+  ny_noaa |>
+  mutate(year = year(date),
+         month = month(date),
+         day = day(date),
+         prcp = prcp / 10, # Convert precipitation from tenths of mm to mm
+         tmax = as.numeric(tmax) / 10, #conver minumum temperature from tenths of degress C to degree C
+         tmin = as.numeric(tmin) / 10  #Convert minimum temperature from tenths of degrees C to degrees C
+  )
+```
+
+
+```{r}
+ny_noaa_1 |>
+  count(snow) |>
+  slice_max(n, n = 1)
+  
+
+```
+
+most oserved snowfall is 0.
+
+```{r}
+month_jan_july = 
+  ny_noaa_1 |>
+  filter(month %in% c(1, 7))
+
+ave_tmax = 
+  month_jan_july |> 
+  group_by(id, year, month) |>
+  summarise(avg_tmax = mean(tmax, na.rm = TRUE))
+
+ave_tmax |>
+  ggplot(aes(x = year, y = avg_tmax)) +
+  geom_point(aes(color = id)) +
+  facet_grid(~month)
+```
+
