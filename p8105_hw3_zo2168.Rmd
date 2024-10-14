@@ -83,6 +83,14 @@ ggplot(ave_tmax, aes(x = year, y = avg_tmax), group = id) +
 The mean temperature in January is much lower than the mean temperature in July for all stations and across all years.
 
 
+```{r}
+hex_1 = 
+  ny_noaa %>% 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_hex()
+
+hex_1
+```
 
 # Question 2
 
