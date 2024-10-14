@@ -3,7 +3,6 @@ title: "p8105_hw3_zo2168"
 author: "Zhengkun Ou"
 date: "2024-10-12"
 output: github_document
-
 ---
 
 ```{r setup, include=FALSE}
@@ -12,13 +11,15 @@ library(p8105.datasets)
 library(tidyverse)
 library(rvest)
 library(httr)
-library("knitr")
+library(knitr)
+library(ggridges)
+library(patchwork)
 knitr::opts_chunk$set(
   fig.width = 6,
   fig.asp = .6,
   out.width = "90%"
 )
-
+library()
 theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 options(
@@ -31,6 +32,7 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 # Question 1
+
 ```{r}
 data("ny_noaa")
 skimr::skim(ny_noaa)
@@ -72,61 +74,68 @@ ave_tmax =
   filter(!is.na(tmax)) |>
   summarise(avg_tmax = mean(tmax, na.rm = TRUE))
 
-ggplot(ave_tmax, aes(x = year, y = avg_tmax, aes(color = month))) +
+ggplot(ave_tmax, aes(x = year, y = avg_tmax), group = id) +
   geom_point(aes(color = month)) + 
   facet_grid(~ month)
+
 ```
+
+The mean temperature in January is much lower than the mean temperature in July for all stations and across all years.
+
+
 
 # Question 2
 
 ```{r}
 demo_df <- read_csv(file = "https://p8105.com/data/nhanes_covar.csv", 
                     skip = 4,
-                    na = c(".", "NA",""))
-
-acc_df <- read_csv("https://p8105.com/data/nhanes_accel.csv", )
+                    na = c(".", "NA","")) |> janitor::clean_names()
+acc_df <- read_csv("https://p8105.com/data/nhanes_accel.csv") |> janitor::clean_names()
 
 ```
 
-```{r}
-demo_df = 
-  demo_df |>
-  mutate(SEQN = as.integer(SEQN))
+Load, tidy, merge, and organize the data sets:
 
-acc_df = 
-  acc_df |>
-  mutate(SEQN = as.integer(SEQN))
+```{r}
 
 demo_df_filtered <- 
   demo_df |>
   filter(age >= 21) |>
-  filter(!is.na(sex) & !is.na(age) & !is.na(BMI) & !is.na(education)) |>
+  filter(!is.na(sex) & !is.na(age) & !is.na(bmi) & !is.na(education)) |>
    mutate(
-    sex = as.factor(sex),
-    education = as.factor(education),
-    BMI = as.numeric(BMI)
-  )
+    sex = as.factor(case_match(sex, 
+                               1 ~ "male",
+                               2 ~ "female"
+                               )),
+    education = as.factor(case_match(education, 
+                                     1 ~ "Less than high school",
+                                     2 ~ "High school equivalent",
+                                     3 ~ "More than high school"))) |>
+  mutate(sex = factor(sex, levels = c("male", "female")), 
+         education = factor(education, levels = c("Less than high school", "High school equivalent", "More than high school")))
+    
   
-
 
 #ensures that only participants who have both accelerometer data and demographic data are retained.
 final_dataset_inner <- acc_df %>%
-  inner_join(demo_df_filtered, by = "SEQN")
+  inner_join(demo_df_filtered, by = "seqn")
 
 final_dataset <- final_dataset_inner |>
-  relocate(SEQN, sex, education, BMI, age)
+  relocate(seqn, sex, education, bmi, age)
+
 head(final_dataset)
 ```
 
-```{r}
-gender_education_table <- 
-  final_dataset %>%
-  group_by(sex, education) %>%
-  count(name = "num_of_participants") %>%
-  arrange(education)
+reader-friendly table for the number of men and women in each education category:
 
-knitr::kable(gender_education_table)
+```{r}
+gender_education_table <- demo_df_filtered |>
+  janitor::tabyl(education, sex) |>
+  knitr::kable()
+gender_education_table
 ```
+
+visualization of the age distributions for men and women in each education category:
 
 ```{r}
 ggplot(final_dataset, aes(x = age, fill = sex)) +
@@ -137,30 +146,23 @@ ggplot(final_dataset, aes(x = age, fill = sex)) +
     x = "Age (years)",
     y = "Count",
     fill = "Sex"
-  ) +
-  theme_minimal()
-
-
-```
-
-```{r}
-ggplot(final_dataset, aes(x = age, fill = sex)) +
-  geom_histogram(binwidth = 3, position = "dodge", alpha = 0.8) +
-  facet_grid(sex ~ education) +
-  labs(
-    title = "Age Distribution by Sex and Education Level",
-    x = "Age (years)",
-    y = "Count",
-    fill = "Sex"
   ) 
 
 ```
 
-Both two plots makes sense in terms of seeing the distribution.
-In education group 1, there are no much difference between the male and female in terms of the age distribution.
-For group 2, there are more poeple in sex 1 and less people in age 2.
-In group 3, people with sex = 2 had more of people from 20 - 40 years old.
-Both two sex groups have more people in the third group.
+```{r}
+ggplot(final_dataset, aes(x = education, y = age, fill = sex)) +  
+  geom_boxplot(alpha = 0.3) +
+   labs(
+    title = "Boxplot by Sex and Education Level",
+    x = "Education",
+    y = "age",
+    fill = "Sex")
+
+
+```
+
+Education level appears to influence the age distribution, with a higher proportion of older individuals in the “less than high school” category, while younger individuals are more represented in the “more than high school” category. The “high school equivalent” category shows the most even age distribution across different ages for males, while for females, it shows more variability. These differences may reflect broader socio-economic trends, where younger generations may have more access to education, and older individuals may have had different educational opportunities depending on the time period.
 
 ```{r}
 #group by the SEQN then use inner_join add the corresponding age, name, etc. 
@@ -170,18 +172,19 @@ long_act <-
                names_to = "minute", 
                values_to = "activity",
                names_prefix = "min") |>
-  group_by(SEQN) |> 
+  group_by(seqn) |> 
   summarise(total_act = sum(activity, na.rm = TRUE)) |>
-  inner_join(demo_df_filtered, by = "SEQN")
-
-
+  inner_join(demo_df_filtered, by = "seqn")
 ```
 
+create a total activity variable for each participant. Plot these total activities (y-axis) against age (x-axis)
+
 ```{r}
+
 ggplot(long_act, aes(x = age, y = total_act, color = sex)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  facet_wrap(~ education) + 
+  facet_wrap(.~ education) + 
   labs(
     title = "Total Activity vs Age by Sex and Education Level",
     x = "Age (years)",
@@ -189,20 +192,21 @@ ggplot(long_act, aes(x = age, y = total_act, color = sex)) +
     color = "Sex")
 ```
 
-## Trends in Total Activity by Age:
+**1. Trends in Total Activity by Age:Less than High School**: There is a general decline in total activity as age increases for both sexes. Males (represented by the purple line) tend to show a sharper decline in activity compared to females (yellow line), especially after the age of 60.\
+High School Equivalent: Here, the patterns are a bit more complex. There is an increase in activity around middle age (approximately 40-60 years), followed by a decline in later years. Females tend to have higher activity levels than males, particularly in mid-life.\
+More than High School: The trend for both males and females is more stable compared to the other education categories. While there is a slight dip in activity as people age, the overall activity levels are higher and less variable for individuals with more than a high school education. Females again tend to have higher activity than males in mid-life, but the gap narrows in older age.\
 
-The plot shows total activity (y-axis) against age (x-axis) for participants, separated by education level.
-The trend lines suggest that total activity tends to decline with age across all education levels, but there are some nuances depending on education and gender.
-## Differences by Sex: The lines represent men (sex = 1) and women (sex = 2).
-It appears that, in general, women (yellow line) tend to have a slightly higher total activity level compared to men (purple line) across most education categories, especially for younger participants.
-This may indicate that women are relatively more active at younger ages, though activity drops for both sexes with age.
-## Education Categories: The three panels represent different education levels.
-The difference between the trend lines for men and women varies by education.
-For example: In education level 1, women tend to have higher activity at younger ages but converge with men at older ages.
-In education level 3, both men and women show similar activity trends with age, but there seems to be more variability for women.
-## Patterns of Activity Decline: Across all education levels, there is a noticeable decline in activity as age increases.
-This is a common finding, as physical activity tends to decrease with aging.
-Participants with higher education levels appear to have more consistent activity levels throughout their age range, while those with lower education show more variability.
+**2. Sex Differences**: In the "Less than High School" and "High School Equivalent" groups, there is a clear difference between male and female total activity, with females generally exhibiting higher activity levels at most ages.\
+The "More than High School" group shows less of a gap between sexes in terms of total activity, though females still tend to show slightly higher activity levels during middle age.\
+
+**3. Education and Total Activity**: Higher education seems to correlate with more stable levels of activity across age groups. Individuals with more than a high school education show less variability and maintain higher levels of activity throughout life.\
+For individuals with less than a high school education, activity levels decline more sharply with age, particularly for males.\
+
+**4. Nonlinear Age Patterns**: The activity levels do not follow a simple linear trend. In some age groups, such as those with a high school equivalent education, total activity actually increases around middle age before declining later in life. This is especially noticeable for females.\
+There is a more consistent, gradual decline for males in both the "Less than High School" and "More than High School" categories.\
+**5. Implications**: These trends suggest that educational attainment may be linked to how physical activity levels are maintained across the lifespan, with more educated individuals possibly having access to better resources, health knowledge, or work environments that promote sustained activity.\
+
+The differences between sexes also highlight that factors such as social roles, work demands, and health behaviors may influence activity patterns differently for males and females.
 
 ```{r}
 activity_long <- 
@@ -213,27 +217,35 @@ activity_long <-
                names_prefix = "min") |>
   mutate(minute = as.numeric(minute))
   
-activity_long
 ```
 
 ```{r}
-ggplot(activity_long, aes(x = minute, y = activity, color = sex)) +
-  geom_smooth(se = FALSE) + 
-  facet_wrap(~ education) +
+activity_long |> 
+  ggplot(aes(x = minute, y = activity, color = sex)) +
+  geom_line(alpha = 0.2, aes(group = seqn)) +
+  geom_smooth(aes(group = sex), se = FALSE) + 
+  facet_grid(.~education) +
   labs(
     title = "24-Hour Activity Time by Education Level",
     x = "Minute of the Day",
     y = "Average Activity (MIMS)",
     color = "Sex"
-  ) +
-  theme_minimal()
+  )
+  
 ```
 
-Description of patterns or conclusions based on the plot: There are notable activity peaks during specific times of the day.
-Activity levels tend to be lower during midnight hours.
-sex 2 tends to have slightly higher average activity levels during peak times compared to sex 1, especially for higher levels of educaition level 3.
-education level 3 shows more consistent activity patterns, while education level 1 shows greater variability.
-Adding the smooth trend lines helps to better visualize differences between sex 1 and sex 2, showing that sex 2 tends to maintain higher activity during peak periods, especially for education level 3.
+**Activity Peaks Across the Day:**
+
+Across all education levels, there are clear activity peaks early in the day, likely representing morning routines or work commutes, and again toward the end of the day, possibly representing post-work activities or exercise. \
+Activity tends to drop significantly in the late evening and early morning (near the start and end of the plot), which corresponds to periods of sleep or rest. \ **Differences in Activity by Education Level**: Less than High School: For individuals with less than a high school education, the activity patterns are relatively steady throughout the day, with noticeable peaks in the morning and late afternoon. There is no sharp decline in activity throughout the day, suggesting constant levels of moderate activity.\
+High School Equivalent: This group shows a similar pattern to those with less than high school education, though there seems to be slightly more pronounced peaks in the morning and evening.\
+More than High School: Individuals with more than high school education show more variability in their activity levels throughout the day. There is a marked morning peak, followed by a gradual decline, with a sharp increase again late in the day. This group appears to have higher spikes in total activity during certain periods, suggesting a more intense but less consistent activity pattern throughout the day.\
+**3. Sex Differences**: Less than High School: Males and females display relatively similar patterns, with males showing slightly higher peaks during morning hours and early afternoon, while females tend to maintain steady activity later into the day.\
+High School Equivalent: The pattern is similar, but the gap between male and female activity is more pronounced in the morning hours, where females exhibit higher early-morning activity than males.\
+More than High School: In this group, females tend to maintain higher activity throughout the day, with more balanced peaks compared to males, who exhibit more dramatic fluctuations. Males have higher bursts of activity but also larger drops between periods of activity.\
+**4. Intensity of Activity**: Across all education levels, individuals with more than a high school education appear to show more intense activity spikes, particularly during the morning and evening periods. This could suggest more structured or planned activities, such as workouts or commutes, as opposed to the steadier activity levels seen in the less educated groups. The total activity intensity in the "Less than high school" and "High school equivalent" groups appears lower on average compared to the "More than high school" group, reflecting perhaps a difference in lifestyle or job type.\
+**5. General Trends**: Higher education levels appear to correlate with more structured periods of high-intensity activity, while lower education levels show more consistent, moderate levels of activity throughout the day.\
+The differences between sexes suggest that males may engage in more high-intensity bursts of activity, particularly in the morning and early evening, whereas females tend to maintain a more even distribution of activity across the day.
 
 # Question 3
 
@@ -254,12 +266,7 @@ july_2024 <- read_csv("./citibike/July 2024 Citi.csv", na = c(".", "NA","")) |>
 
 ```{r}
 citibike_data <- bind_rows(jan_2020, jan_2024, july_2020, july_2024)
-
-#remove the null value with no start_name and end_name
-citibike_data <- 
-  citibike_data |>
-  filter(!is.na(start_station_name) & !is.na(end_station_name))
-
+citibike_data |> filter(is.na(start_station_name))
 #make sure no duplicate info, and change the variable type to facotr
 citibike_data <- citibike_data |>
   distinct() |>
@@ -267,46 +274,47 @@ citibike_data <- citibike_data |>
          weekdays = as.factor(weekdays),
          member_casual = as.factor(member_casual),
          month = as.factor(month)) |>
-  relocate(ride_id,  member_casual, rideable_type, year, month, weekdays,start_station_name, end_station_name, duration)
-
-head(citibike_data)
-
+  relocate(ride_id,  member_casual, rideable_type, year, month, 
+           weekdays,start_station_name, end_station_name, duration)
 ```
 
-`ride_id (<chr>)`: Unique identifier for each bike ride.
-`rideable_type (<fctr>)`: Type of bike used during the ride.
-It is categorized as a factor with types like "classic_bike" or other available bike types.
-`weekdays (<fctr>)`: The day of the week on which the ride took place.
-This information is stored as a factor, which will be useful for analyzing ride patterns on different days.
-`duration (<dbl>)`: Duration of the ride in minutes.
-This numeric value (<dbl>) can be used to analyze the length of rides over different days, times, or across different user types.
-`start_station_name (<chr>)`: Name of the station where the ride started.
-`end_station_name (<chr>)`: Name of the station where the ride ended.
-`member_casual (<fctr>)`: Rider type, either "member" or "casual." This column is also a factor `month` and `year` are added for future use, month are changed into factor variable Dataset Features: The dataset has been filtered to remove rows with missing values for start_station_name and end_station_name, ensuring all rides have a recorded start and end location.
+`ride_id (<chr>)`: Unique identifier for each bike ride. `rideable_type (<fctr>)`: Type of bike used during the ride. It is categorized as a factor with types like `classic_bike` or `electric_bike`. `weekdays (<fctr>)`: The day of the week on which the ride took place. This information is stored as a factor, which will be useful for analyzing ride patterns on different days. `duration (<dbl>)`: Duration of the ride in minutes. This numeric value (<dbl>) can be used to analyze the length of rides over different days, times, or across different user types. `start_station_name (<chr>)`: Name of the station where the ride started. `end_station_name (<chr>)`: Name of the station where the ride ended. `member_casual (<fctr>)`: Rider type, either "member" or "casual." This column is also a factor\
+`month` and `year` are added for future use, month are changed into factor variable\
 No Duplicate Records: Duplicates have been removed Categorical Data as Factors: Columns such as rideable_type, weekdays, month, and member_casual are transformed into factors.
 
 ```{r}
-ride_counts <- citibike_data %>%
-  group_by(year, month, member_casual) %>%
-  count(name = "total_rides")
+ride_counts <- citibike_data |>
+  group_by(year, month, member_casual) |>
+  count(name = "total_rides") |>
+  pivot_wider(names_from = "member_casual", 
+              values_from = "total_rides")
 knitr::kable(ride_counts)
 ```
 
-## Higher Usage Among Members:
+**Higher Usage Among Members**:
 
-Across all observed months and years, Citi Bike members consistently outnumber casual riders in terms of total rides.
-This suggests that members are the main users of the Citi Bike system, whereas casual riders may use it occasionally \## Seasonal Trends: There is a significant increase in rides during July compared to January, indicating that weather plays an important role in bike usage.
-Warmer months, such as July, see more usage.
-For both 2020 and 2024, July has a much higher number of rides compared to January.
-For example, in July 2020, members took 15,388 rides, whereas in January of the same year, they took only 11,418 rides.
-## Growth in Usage from 2020 to 2024: Comparing 2020 and 2024, there is an increase in the total number of rides for both members and casual riders in each comparable month.
-For instance, the number of member rides in January increased from 11,418 in 2020 to 16,705 in 2024, and the number of casual rides in July increased from 5,625 in 2020 to 10,843 in 2024.
-This indicates that the overall popularity of the Citi Bike system has grown significantly over time.
-## Member Growth: The growth rate in member rides appears to be much stronger compared to that of casual rides, especially evident in July 2024, where member rides reached 36,200, more than double that of July 2020.
-## Fluctuating Casual Rider Trends: Casual rider counts have also increased, but the growth is not as pronounced as for members.
-For instance, casual rides increased from 980 in January 2020 to 2,094 in January 2024, suggesting a moderate uptake in occasional use, likely tied to factors such as tourism or occasional commuting.
+Across all observed months and years, Citi Bike members consistently outnumber casual riders in terms of total rides. This suggests that members are the main users of the Citi Bike system, whereas casual riders may use it occasionally.
+
+**Seasonal Trends**:
+
+There is a significant increase in rides during July compared to January, indicating that weather plays an important role in bike usage. Warmer months, such as July, see more usage. For both 2020 and 2024, July has a much higher number of rides compared to January. For example, in July 2020, members took 15,411 rides, whereas in January of the same year, they took only 11,436 rides.
+
+**Growth in Usage from 2020 to 2024**:
+
+Comparing 2020 and 2024, there is an increase in the total number of rides for both members and casual riders in each comparable month. For instance, the number of member rides in January increased from 11,436 in 2020 to 16,753 in 2024, and the number of casual rides in July increased from 5,637 in 2020 to 10,894 in 2024. This indicates that the overall popularity of the Citi Bike system has grown significantly over time.
+
+**Member Growth**:
+
+The growth rate in member rides appears to be strong, especially evident in July 2024, where member rides reached 36,262, more than double that of July 2020.
+
+**Fluctuating Casual Rider Trends**:
+
+Casual rider counts have also increased over the years. For instance, casual rides increased from 984 in January 2020 to 2,108 in January 2024, suggesting a moderate uptake in occasional use, likely tied to factors such as tourism or occasional commuting.
+
+## 5 most popular starting stations for July 2024
 
 ```{r}
+
 five_most_popu_start = citibike_data |>  
   filter(month == "July" & year == 2024) |>
   count(start_station_name, name = "count") |> 
@@ -319,21 +327,26 @@ knitr::kable(five_most_popu_start, caption = "Top 5 Most Popular Starting Statio
 ```{r}
 median_duration <- citibike_data |>
    mutate(weekdays = factor(weekdays, 
-                            levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))) |>
+                            levels = c("Monday", "Tuesday", "Wednesday", 
+                                       "Thursday", "Friday", "Saturday", "Sunday"))) |>
   group_by(year, month, weekdays) |>
   summarise(median_duration = median(duration, na.rm = TRUE)) 
   
 
 
-ggplot(median_duration, aes(x = weekdays, y = median_duration, fill = month)) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.6) +
-  facet_wrap(month~ year) +
+ggplot(median_duration, aes(x = weekdays, y = median_duration, group = month, color = month)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(.~ year) +
   labs(title = "Median Ride Duration by Day of the Week, Month, and Year",
        x = "Day of the Week",
        y = "Median Ride Duration (minutes)",
        fill = "Month") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 ```
+
+**2020**: In 2020, July consistently shows longer median ride durations across all days of the week compared to January. In July, the median ride duration is fairly consistent from Monday through Friday (around 13–14 minutes), with a noticeable increase on Saturday and Sunday, peaking on Sunday at around 16 minutes. In contrast, January ride durations are much shorter, remaining steady at about 8–9 minutes throughout the week.\
+**2024**: A similar pattern is observed in 2024. July (yellow) again shows longer ride durations across the week, with a slight upward trend on the weekends. In January (purple), ride durations remain shorter, with more variability during the week, peaking on Friday and Saturday but dropping again on Sunday.
 
 ```{r, include = FALSE}
 ggplot(citibike_data, aes(x = weekdays)) +
@@ -357,14 +370,10 @@ ggplot(citibike_2024, aes(x = member_casual, y = duration, fill = rideable_type)
        fill = "Bike Type") 
 ```
 
-
 ## Difference in Ride Duration Between Members and Casual Riders:
 
-Casual Riders: The distribution of ride durations for casual riders shows that many casual rides are longer compared to members, especially in the tail of the distribution.
-Members: For members, the distribution of ride durations is more concentrated around shorter times, which suggests that members primarily use Citi Bikes for shorter commutes.
-## Seasonal Differences (January vs. July): The overall shape of the distributions between January and July is relatively similar for both casual riders and members, but there are subtle differences: In July, ride durations for both casual and member riders tend to be slightly longer compared to January.
-This is expected because July typically offers better weather.
-For casual riders, the distributions for July are wider, indicating a greater variety in ride durations, which may imply more leisure and exploratory rides in the warmer month.
-## Impact of Bike Type: Different Bike Types: The plot is filled with colors representing different bike types.
-For both casual and member riders, the distributions for classic and electric bikes overlap, but there are some differences: The electric bike (yellow color) distributions appear to have a slightly longer tail compared to classic bikes (purple color), indicating that electric bikes are potentially used for both longer and more varied rides by casual riders.
-The spread of ride duration for electric bikes suggests that they are popular among casual riders for longer trips, possibly due to their ease of use and less physical effort required.
+**Casual Riders**: The distribution of ride durations for casual riders shows that many casual rides are longer compared to members, especially in the tail of the distribution.\
+**Members**: For members, the distribution of ride durations is more concentrated around shorter times, which suggests that members primarily use Citi Bikes for shorter commutes.\
+**Seasonal Differences (January vs. July)**: The overall shape of the distributions between January and July is relatively similar for both casual riders and members, but there are subtle differences: In July, ride durations for both casual and member riders tend to be slightly longer compared to January.\
+This is expected because July typically offers better weather. For casual riders, the distributions for July are wider, indicating a greater variety in ride durations, which may imply more leisure and exploratory rides in the warmer month.\
+**Impact of Bike Type: Different Bike Types**: The plot is filled with colors representing different bike types. For both casual and member riders, the distributions for classic and electric bikes overlap, but there are some differences: The electric bike (yellow color) distributions appear to have a slightly longer tail compared to classic bikes (purple color), indicating that electric bikes are potentially used for both longer and more varied rides by casual riders. The spread of ride duration for electric bikes suggests that they are popular among casual riders for longer trips, possibly due to their ease of use and less physical effort required.
