@@ -19,7 +19,6 @@ knitr::opts_chunk$set(
   fig.asp = .6,
   out.width = "90%"
 )
-library()
 theme_set(theme_minimal() + theme(legend.position = "bottom"))
 
 options(
@@ -82,8 +81,24 @@ ggplot(ave_tmax, aes(x = year, y = avg_tmax), group = id) +
 
 The mean temperature in January is much lower than the mean temperature in July for all stations and across all years.
 
+```{r}
+hex_plot = 
+  ny_noaa_1 %>% 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_hex()
 
+ridge_plot = 
+  ny_noaa_1 %>% 
+  filter(snow < 100, snow > 0) %>%
+  ggplot(aes(x = snow, y = as.factor(year))) + 
+  geom_density_ridges()
 
+hex_plot + ridge_plot
+```
+
+The hex plot reveals that, despite some variability, most of the data is tightly clustered in the center of the distribution. Interestingly, in a few rare instances, tmax is lower than tmin, which raises concerns about potential data recording or quality issues.\
+
+The ridge plot displays a multimodal distribution of snowfall within each year. The majority of stations report snowfall between 0 and 35 mm annually. There are additional peaks around 45 mm and near 80 mm. This multimodality may be due to the conversion of measurements from one system (e.g., fractions of an inch) to another (e.g., the metric system), a pattern also observed in the table of common values.
 
 # Question 2
 
